@@ -387,11 +387,11 @@ uint64_t SYM_GEQ          = 27; // >=
 
 // symbols for bootstrapping
 
-uint64_t SYM_INT      = 28; // int
-uint64_t SYM_CHAR     = 29; // char
-uint64_t SYM_UNSIGNED = 30; // unsigned
-uint64_t SYM_SLL      = 31; // <<
-uint64_t SYM_SRL      = 32; // >>
+uint64_t SYM_INT      = 30; // int
+uint64_t SYM_CHAR     = 31; // char
+uint64_t SYM_UNSIGNED = 32; // unsigned
+uint64_t SYM_SLL      = 28; // <<
+uint64_t SYM_SRL      = 29; // >>
 uint64_t* SYMBOLS; // strings representing symbols
 
 uint64_t MAX_IDENTIFIER_LENGTH = 64;  // maximum number of characters in an identifier
@@ -456,7 +456,8 @@ void init_scanner () {
   *(SYMBOLS + SYM_LEQ)          = (uint64_t) "<=";
   *(SYMBOLS + SYM_GT)           = (uint64_t) ">";
   *(SYMBOLS + SYM_GEQ)          = (uint64_t) ">=";
-
+  *(SYMBOLS + SYM_SLL)          = (uint64_t) "<<";
+  *(SYMBOLS + SYM_SRL)          = (uint64_t) ">>";
   *(SYMBOLS + SYM_INT)      = (uint64_t) "int";
   *(SYMBOLS + SYM_CHAR)     = (uint64_t) "char";
   *(SYMBOLS + SYM_UNSIGNED) = (uint64_t) "unsigned";
@@ -2900,6 +2901,7 @@ void get_symbol() {
           get_character();
 
           symbol = SYM_LEQ;
+
         }  else  if (character == CHAR_LT) {
           get_character();
 
@@ -3165,9 +3167,9 @@ uint64_t is_plus_or_minus() {
     return 0;
 }
 uint64_t is_sll_or_srl() {
-  if (symbol == SYM_SRL)
+  if (symbol == SYM_SLL)
     return 1;
-  else if (symbol == SYM_SLL)
+  else if (symbol == SYM_SRL)
     return 1;
   else
     return 0;
@@ -3925,7 +3927,7 @@ uint64_t compile_simple_expression() {
 }
 
 uint64_t compile_bitWiseShift_expression() {
-  uint64_t ltype;
+   uint64_t ltype;
   uint64_t operator_symbol;
   uint64_t rtype;
 
@@ -3935,7 +3937,7 @@ uint64_t compile_bitWiseShift_expression() {
 
   // assert: allocated_temporaries == n + 1
 
-  // + or - ?
+  // << or >> ?
   while (is_sll_or_srl()) {
     operator_symbol = symbol;
 
@@ -3953,7 +3955,7 @@ uint64_t compile_bitWiseShift_expression() {
           emit_left_shift_by(current_temporary(), 3);
         else
           // UINT64STAR_T + UINT64STAR_T
-          syntax_error_message("(uint64_t*) + (uint64_t*) is undefined");
+          syntax_error_message("(uint64_t*) << (uint64_t*) is undefined");
       } else if (rtype == UINT64STAR_T) {
         // UINT64_T + UINT64STAR_T
         // pointer arithmetic: factor of 2^3 of integer operand
@@ -3982,7 +3984,7 @@ uint64_t compile_bitWiseShift_expression() {
         }
       } else if (rtype == UINT64STAR_T)
         // UINT64_T - UINT64STAR_T
-        syntax_error_message("(uint64_t) - (uint64_t*) is undefined");
+        syntax_error_message("(uint64_t) >> (uint64_t*) is undefined");
       else
         // UINT64_T - UINT64_T
         emit_srl(previous_temporary(), previous_temporary(), current_temporary());
@@ -3996,6 +3998,7 @@ uint64_t compile_bitWiseShift_expression() {
   return ltype;
 }
 
+
 uint64_t compile_expression() {
   uint64_t ltype;
   uint64_t operator_symbol;
@@ -4003,16 +4006,17 @@ uint64_t compile_expression() {
 
   // assert: n = allocated_temporaries
 
-  ltype = compile_simple_expression();
+  ltype = compile_bitWiseShift_expression();
 
   // assert: allocated_temporaries == n + 1
 
-  //optional: ==, !=, <, >, <=, >= ²  if (is_comparison()) {
+  //optional: ==, !=, <, >, <=, >= simple_expression
+  if (is_comparison()) {
     operator_symbol = symbol;
 
     get_symbol();
 
-    rtype = compile_simple_expression();
+    rtype = compile_bitWiseShift_expression();
 
     // assert: allocated_temporaries == n + 2
 
@@ -4066,7 +4070,7 @@ uint64_t compile_expression() {
 
       tfree(1);
     }
-  
+  }
 
   // assert: allocated_temporaries == n + 1
 
@@ -6856,7 +6860,7 @@ void do_sll() {
 
   pc = pc + INSTRUCTIONSIZE;
 
-  ic_add = ic_add + 1;
+  //ic_add = ic_add + 1;
 }
 void constrain_add_sub_mul_divu_remu_sltu(char* operator) {
   char* op1;
@@ -6896,7 +6900,7 @@ void do_srl() {
 
   pc = pc + INSTRUCTIONSIZE;
 
-  ic_sub = ic_sub + 1;
+  //ic_sub = ic_sub + 1;
 }
 void do_mul() {
   if (rd != REG_ZR)
@@ -7863,19 +7867,7 @@ void decode_execute() {
 
         return;
       } 
-     
-      if (funct7 == F7_SLL) {
-    
-          do_sll();
 
-        return;
-      } 
-      else  if (funct7 == F7_SRL) {
-    
-          do_srl();
-
-        return;
-      } 
 
       else if (funct7 == F7_SUB) {
         if (debug) {
@@ -7924,7 +7916,15 @@ void decode_execute() {
 
         return;
       }
-    } else if (funct3 == F3_DIVU) {
+    }
+
+    else if (funct3 == F3_SLL) {
+      if (funct7 == F7_SLL) {
+          do_sll();
+        return;
+      }
+    } 
+    else if (funct3 == F3_DIVU) {
       if (funct7 == F7_DIVU) {
         if (debug) {
           if (record) {
@@ -7947,6 +7947,10 @@ void decode_execute() {
         } else
           do_divu();
 
+        return;
+      }
+      else if(funct7 == F7_SRL) {
+          do_srl();
         return;
       }
     } else if (funct3 == F3_REMU) {
